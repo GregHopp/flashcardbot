@@ -1,0 +1,22 @@
+import os
+
+def getdirectory():
+
+    while True:
+
+        directory = os.getcwd()
+
+        print(f'Current working directory: {directory}')
+
+        answer = input('Continue or change directory? ')
+
+        if answer == '':
+            break
+
+        elif os.path.exists(answer):
+            if os.path.isdir(answer):
+                os.chdir(answer)
+                continue
+
+        print("Not a valid directory. Enter a different path.")
+        continue
