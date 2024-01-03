@@ -1,0 +1,309 @@
+# This is a tool to create a spreadsheet (ultimately to used for flashcards)
+# while reading an Arabic text. It first requests a sheet name, and creates
+# and saves a sheet under that name, with marked Arabic and English columns.
+# It uses a counter to track what row a given term is on. It operates on a
+# while loop, saving the sheet andasking the user for a term with each
+# iteration. Normally, the user will input an Arabic term, the program will
+# present the translation, and the user will accept by hitting enter. This
+# saves the term and the translation to the sheet. The user can also input
+# their own translation.
+
+# When a translation is presented, the user can also type "hold" or "skip"
+# (this can be done even if the keyboard in set to Arabic, by pressing the
+# same keys as you would in English).
+
+# "Hold" adds the term to a list of held terms, but does not enter it in the
+# sheet. Unless the user comes back to it, there will be no trace of it at the
+# end. This is most useful for when the user is unsure if the term is important,
+# and prevents the creation of cards with blank translations. If the term is
+# later reentered and a translation given, it will be appended to the bottom of
+# the table like any other term.
+
+# "Skip" adds the term to a list of skipped terms, as well as to the sheet. This
+# is most useful when the creation of flashcards from the sheet is not automated,
+# or where the term is important but will require further research to determine
+# an appropriate meaning. If the term is later reentered and a translation given,
+# it will appear where it would have if it was not skipped.
+
+# "Show" will produce the held and skipped lists, and once again present the
+# translation for acceptance. "Show" can also be used when asked for a term.
+
+# When asked for a term, the user has the option of typing "phrase." This is
+# useful for when a whole clause or sentence must be translated in order to
+# clarify its meaning. The user has three options, they can accept the given
+# translation, they can enter their own, or they can skip. The phrase and its
+# translation (or just the phrase, if skipped), are entered D and E columns,
+# respectively.
+
+# If the user types 'done' when asked for a term, they are first presented with
+# the current skipped and held terms. They can end the program by hitting
+# "enter," or they can cancel by typing any character and hitting "enter."
+
+# When the program is ended, it saves the workbook, and informs the user.
+
+import openpyxl
+from openpyxl.styles import Font
+from google.cloud import translate_v2 as translate
+import getdirectory as gd
+import os
+import sys
+
+def make_translation(term_or_phrase):
+    translate_client = translate.Client()
+
+    if isinstance(term_or_phrase, bytes):
+        term_or_phrase = term_or_phrase.decode('utf-8')
+
+    trans_dict = translate_client.translate(term_or_phrase, target_language="en", source_language="ar")
+
+    translation = trans_dict['translatedText']
+
+    return translation
+
+def show_dict(x_dict: dict):
+    print_counter = 1
+    for key, value in x_dict.items():
+        if print_counter % 6 != 0:
+            print(value, end='\t')
+        else:
+            print(value, end='\n')
+        print_counter += 1
+    print()
+    if print_counter % 6!= 0:
+        print()
+
+def show_terms(skipped_terms: dict, held_terms: dict):
+    print('Skipped terms:')
+    show_dict(skipped_terms)
+    
+    print('Held terms:')
+    show_dict(held_terms)
+
+def get_key_by_value(my_dict, value_to_find):
+    for key, value in my_dict.items():
+        if value == value_to_find:
+            return int(key)
+            break
+
+def in_skipped_or_held(term: str, skipped_terms: dict,
+                       held_terms: dict):
+    if term in skipped_terms.values():
+        return True
+    elif term in held_terms.values():
+        return True
+    else:
+        return False
+
+def print_and_pick_row(term: str, sheet, answer, 
+                       skipped_terms: dict,
+                       held_terms: dict):
+    if term in skipped_terms.values():
+        row = get_key_by_value(skipped_terms, term)
+        sheet[f'B{row}'] = answer
+        keys_to_remove = [key for key, value in skipped_terms.items() if value == term]
+        for key in keys_to_remove:
+            del skipped_terms[key]
+            
+    elif term in held_terms.values():
+        row = get_key_by_value(held_terms, term)
+        sheet[f'A{row}'] = term
+        sheet[f'B{row}'] = answer
+        keys_to_remove = [key for key, value in held_terms.items() if value == term]
+        for key in keys_to_remove:
+            del held_terms[key]
+
+def find_last_filled_row(sheet, column):
+    for row in range(sheet.max_row, 0, -1):
+        cell_value = sheet[f'{column}{row}'].value
+        if cell_value is not None:
+            return row
+
+gd.getdirectory()
+
+while True:
+    sheet_name = input("Sheet name? ")
+
+    if not os.path.isfile(sheet_name) and not os.path.isfile(f'{sheet_name}.xlsx'):
+        print("Doesn't exist")
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.title = 'Terms'
+
+        sheet['A1'] = 'ARABIC'
+        sheet['A1'].font = Font(bold=True)
+        sheet['B1'] = 'ENGLISH'
+        sheet['B1'].font = Font(bold=True)
+
+        counter = 2
+        phrase_counter = 2
+        
+        break
+
+    else:
+        keep_file = input("File already exists. Continue? ")
+        if keep_file != '':
+            continue
+        else:
+            workbook = openpyxl.load_workbook(f'{sheet_name}.xlsx')
+            if 'Terms' not in workbook.sheetnames:
+                workbook.close()
+                sys.exit("There is no sheet named 'Terms' in this file. Exiting the program.")
+            else:
+                if len(workbook.sheetnames) == 1:
+                    sheet = workbook.active
+                else:
+                    sheet = workbook['Terms']
+                counter = find_last_filled_row(sheet, 'A') + 1
+                phrase_counter = 2
+                break
+        
+
+workbook.save(f'{sheet_name}.xlsx')
+
+held_terms = {}
+skipped_terms = {}
+
+while True:
+    workbook.save(f'{sheet_name}.xlsx')
+    term = input('Term? ')
+    if (term == 'done' or
+        term == 'DONE' or
+        term == 'يخىث'):
+
+        show_terms(skipped_terms, held_terms)
+
+        answer = input('Done? ')
+        if answer == '':
+            break
+        else:
+            continue
+
+    elif (term == 'SHOW' or
+          term == 'show' or
+          term == 'ساخص'):
+        show_terms(skipped_terms, held_terms)
+        continue
+
+    elif (term == 'PHRASE' or
+          term == 'phrase' or
+          term == 'حاقشسث'):
+        if not 'Phrases' in workbook:
+            workbook.create_sheet(title='Phrases')
+            sheet = workbook['Terms']
+            phrase_sheet = workbook['Phrases']
+
+            phrase_sheet['A1'] = 'ARABIC'
+            phrase_sheet['A1'].font = Font(bold=True)
+            phrase_sheet['B1'] = 'ENGLISH'
+            phrase_sheet['B1'].font = Font(bold=True)
+            
+        elif phrase_counter == 2:
+            phrase_sheet = workbook['Phrases']
+            if find_last_filled_row(phrase_sheet, 'A') == None:
+                phrase_counter = 2
+            else:
+                phrase_counter = find_last_filled_row(phrase_sheet, 'A') + 1
+        
+        phrase = input('Enter phrase: ')
+        translation = make_translation(phrase)
+        new_answer = input(f'Translation is "{translation}." Accepted? ')
+
+        if new_answer == '':
+            phrase_sheet[f'A{phrase_counter}'] = phrase
+            phrase_sheet[f'B{phrase_counter}'] = translation
+
+        elif (new_answer == 'SKIP' or
+              new_answer == 'skip' or
+              new_answer == 'سنهح'):
+            phrase_sheet[f'A{phrase_counter}'] = phrase
+        
+        else:
+            phrase_sheet[f'A{phrase_counter}'] = phrase
+            phrase_sheet[f'B{phrase_counter}'] = new_answer
+
+        phrase_counter += 1
+        continue
+
+    elif term in skipped_terms.values():
+        print('Term previously skipped.')
+
+    elif term in held_terms.values():
+        print('Term previously held.')
+        
+    
+    translation = make_translation(term)
+
+    answer = input(f'Translation is "{translation}." Alternative? ')
+
+    # Allows user to check the held terms without 
+    if (answer == 'SHOW' or
+          answer == 'show' or
+          answer == 'ساخص'):
+        #print(show_terms(skipped_terms, held_terms))
+        print(held_terms)
+        answer = input(f'Translation is "{translation}." Alternative? ')
+
+    # Skips term, but adds it to the sheet,
+    # so the translation is a blank space.
+    if (answer == 'SKIP' or
+          answer == 'skip' or
+          answer == 'سنهح'):
+        if term in skipped_terms.values():
+            print('Still in skipped terms.')
+        else:
+            sheet[f'A{counter}'] = term
+            skipped_terms[counter] = term
+            print('Added to skipped terms.')
+            counter += 1
+            
+        if term in held_terms.values():
+            keys_to_remove = [key for key, value in held_terms.items() if value == term]
+            for key in keys_to_remove:
+                del held_terms[key]
+            print(f'{term} deleted from held terms.')
+
+    # Adds the term to the held list. Doesn't increase
+    # the counter, so that if it remains at the end
+    # the sheet doesn't have blank spaces.
+    elif (answer == 'HOLD' or
+          answer == 'hold' or
+          answer == 'اخمي'):
+        if term in skipped_terms.values():
+            print('Already in skipped terms.')
+        elif term in held_terms.values():
+            print('Still in held terms.')
+        else:
+            held_terms[counter] = term
+            print('Added to held terms.')
+            counter += 1
+
+    # This is the primary answer. Adds term and translation to
+    # the sheet and moves on.
+    elif answer == '':
+        if in_skipped_or_held(term, skipped_terms, held_terms):
+            print_and_pick_row(term, sheet, translation,
+                               skipped_terms, held_terms)
+        
+        else:
+            sheet[f'A{counter}'] = term
+            sheet[f'B{counter}'] = translation
+            counter += 1
+
+    else:
+        if in_skipped_or_held(term, skipped_terms, held_terms):
+            print_and_pick_row(term, sheet, answer,
+                               skipped_terms, held_terms)
+
+        else:
+            sheet[f'A{counter}'] = term
+            sheet[f'B{counter}'] = answer
+            counter += 1
+
+for row in reversed(list(sheet.iter_rows(min_row=1, max_row=sheet.max_row))):
+        # Check if all cells in the row are empty (blank)
+        if all(cell.value is None for cell in row):
+            # Delete the blank row
+            sheet.delete_rows(row[0].row, 1)
+
+workbook.save(f'{sheet_name}.xlsx')
+print(f"Terms and translations saved @ {sheet_name}.xlsx")
